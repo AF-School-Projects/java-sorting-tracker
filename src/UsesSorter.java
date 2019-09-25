@@ -1,9 +1,13 @@
 import java.math.BigInteger;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveTask;
 import java.util.function.BiFunction;
@@ -25,6 +29,16 @@ public interface UsesSorter {
 	 * <br>- Quick sort
 	 * <br>- Merge sort
 	 * <br>- Merge sort (multithreaded)
+	 * <br>- Heap sort
+	 * <br>
+	 * <br>- Insertion sort k
+	 * <br>- Selection sort k
+	 * <br>- Bubble sort k
+	 * <br>- Quick sort k
+	 * <br>- Merge sort k
+	 * <br>- Merge sort k (multithreaded)
+	 * <br>- Heap sort k
+	 * <br>- Median of medians
 	 * 
 	 * @author Alex Feaser
 	 */
@@ -58,6 +72,12 @@ public interface UsesSorter {
 		private static <E extends Comparable<? super E>> E maxE(E[] array) {
 			if (array instanceof Integer[])
 				return (E) (Integer) (Integer.MAX_VALUE);
+			else if (array instanceof Short[])
+				return (E) (Short) (Short.MAX_VALUE);
+			else if (array instanceof UUID[])
+				return (E) (UUID) (new UUID(Long.MAX_VALUE, Long.MAX_VALUE));
+			else if (array instanceof LocalDateTime[])
+				return (E) (LocalDateTime) LocalDateTime.MAX;
 			else if (array instanceof Long[])
 				return (E) (Long) (Long.MAX_VALUE);
 			else if (array instanceof Float[])
@@ -65,7 +85,7 @@ public interface UsesSorter {
 			else if (array instanceof Double[])
 				return (E) (Double) (Double.MAX_VALUE);
 			else if (array instanceof Character[])
-				return (E) (Character)(Character.MAX_VALUE);
+				return (E) (Character) (Character.MAX_VALUE);
 			else if (array instanceof String[]) {
 				StringBuilder sb = new StringBuilder();
 				for (int i = 0; i < STRING_LEN; ++i)
@@ -74,7 +94,6 @@ public interface UsesSorter {
 			}
 			return null;
 		}
-
 		
 		/**
 		 * Populates argument array with new and randomized data.
@@ -101,6 +120,26 @@ public interface UsesSorter {
 				Integer[] a = (Integer[]) array;
 				for(int i = 0; i < array.length; ++i)
 					a[i] = rand.nextInt();
+			} 
+			else if (array instanceof Short[]) {
+				array = (E[]) new Short[NEW_ARRAY_LEN];
+				Short[] a = (Short[]) array;
+				for(int i = 0; i < array.length; ++i)
+					a[i] = (short) (rand.nextInt(Short.MAX_VALUE << 1) - Short.MAX_VALUE);
+			} 
+			else if (array instanceof UUID[]) {
+				array = (E[]) new UUID[NEW_ARRAY_LEN];
+				UUID[] a = (UUID[]) array;
+				for(int i = 0; i < array.length; ++i)
+					a[i] = UUID.randomUUID();
+			} 
+			else if (array instanceof LocalDateTime[]) {
+				array = (E[]) new LocalDateTime[NEW_ARRAY_LEN];
+				LocalDateTime[] a = (LocalDateTime[]) array;
+				for(int i = 0; i < array.length; ++i)
+					a[i] = LocalDateTime.of(
+							LocalDate.of(rand.nextInt(60) + 1980, rand.nextInt(12) + 1, rand.nextInt(28) + 1)
+							, LocalTime.of(rand.nextInt(24), rand.nextInt(60), rand.nextInt(60), rand.nextInt(1000000000)));
 			} 
 			else if (array instanceof Long[]) {
 				array = (E[]) new Long[NEW_ARRAY_LEN];

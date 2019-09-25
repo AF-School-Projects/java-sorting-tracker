@@ -1,5 +1,7 @@
 import java.math.BigInteger;
+import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
@@ -44,7 +46,7 @@ public class Project_01 implements UsesSorter {
 		System.out.format("%-12s%s%n%n", "Result: ", f.apply(a, k));
 	}
 
-	private static final int _K() { return Sorter.NEW_ARRAY_LEN >> 1; }
+	private static final int _K() { return (Sorter.NEW_ARRAY_LEN + 1) >> 1; }
 
 	public static void main(String[] args) {
 		for (int n : new int[] {
@@ -54,15 +56,18 @@ public class Project_01 implements UsesSorter {
 				10000,
 				100000,
 				1000000,
-//				10000000,
+				10000000,
 				}) {
 			Sorter.NEW_ARRAY_LEN = n;
+			execute("Shorts", Sorter.randomize(new Short[]{}), n);
 			execute("Integers", Sorter.randomize(new Integer[]{}), n);
 			execute("Floats", Sorter.randomize(new Float[]{}), n);
 			execute("Longs", Sorter.randomize(new Long[]{}), n);
 			execute("Doubles", Sorter.randomize(new Double[]{}), n);
 			execute("BigIntegers", Sorter.randomize(new BigInteger[]{}), n);
 			execute("Strings", Sorter.randomize(new String[]{}), n);
+			execute("Strings", Sorter.randomize(new UUID[]{}), n);
+			execute("Strings", Sorter.randomize(new LocalDateTime[]{}), n);
 			if (n < 1000000) 
 				execute("Characters", Sorter.randomize(new Character[]{}), n);
 		}
