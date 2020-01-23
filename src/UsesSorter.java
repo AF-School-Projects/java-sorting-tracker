@@ -1,10 +1,15 @@
+import java.io.IOException;
 import java.math.BigInteger;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
@@ -12,6 +17,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveTask;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Interface wrapper for easy inclusion of {@link Sorter}.
@@ -44,11 +50,199 @@ public interface UsesSorter {
 	 */
 	final static class Sorter {
 
+		enum Sort {
+			INSERTION, 
+			INSERTION_K,
+			SELECTION, 
+			SELECTION_K,
+			BUBBLE, 
+			BUBBLE_K,
+			QUICK, 
+			QUICK_K,
+			MERGE,
+			MERGE_K,
+			MT_MERGE,
+			MT_MERGE_K,
+			HEAP,
+			HEAP_K,
+			MEDIAN_OF_MEDIANS,
+		};
+		
+		enum Type {
+			SHORTS,
+			INTEGERS,
+			LONGS,
+			FLOATS,
+			DOUBLES,
+			CHARACTERS,
+			STRINGS,
+			BIGINTEGERS,
+			LOCALDATETIMES,
+			UUIDS,
+		};
+		
 		private static final int STRING_LEN = 64;
-		private static final int NUM_TRIALS = 10;
+		private static int NUM_TRIALS = 100;
 		protected static int NEW_ARRAY_LEN;
 		private static SortStats tracker = new SortStats();
-		private static List<SortStats> results = new ArrayList<>();
+		private static List<SortStats> trialResults = new ArrayList<>();
+		private static HashMap<Type, HashMap<Integer, List<SortStats>>> totals = new HashMap<>();
+		
+		private static final Type[] usingTypes = {
+			Type.SHORTS,
+			Type.INTEGERS,
+			Type.LONGS,
+			Type.FLOATS,
+			Type.DOUBLES,
+			Type.CHARACTERS,
+			Type.STRINGS,
+			Type.BIGINTEGERS,
+			Type.LOCALDATETIMES,
+			Type.UUIDS,
+		};
+		
+		public static <E extends Comparable <? super E>> void demoAll() {
+			StringBuilder sb = new StringBuilder();
+			try {
+				Files.write(Paths.get("output.txt"), "".getBytes());
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			for (int n : new int[] {
+					10, 
+					100, 
+					1000, 
+					10000,
+//					100000,
+//					1000000,
+//					10000000,
+					}) {
+				Sorter.NEW_ARRAY_LEN = n;
+				final boolean VERBOSE = (n <= 100), SLOW = (n <= 100000);
+				for (Type type : usingTypes) {
+					if (n >= 1000000 && type == Type.CHARACTERS)
+						continue;	// Characters >= 1 million goes infinite on median of medians?
+					E[] a = randomize(newArray(type));
+					tracker.currentType = type;
+					sb.append(String.format("%n%n  ~~~~~~~~  %8s:  %-12s  ~~~~~~~~%n%n", 
+							type, String.format("n = %d", n)));
+					if (VERBOSE) sb.append(String.format("%-12s%s%n", "Unsorted: ", Arrays.deepToString(a)));
+					if (VERBOSE) sb.append(p(Sorter::insertionSort, a.clone()));
+					if (SLOW) sb.append(p(Sorter::insertionSortK, a.clone()));
+					if (VERBOSE) sb.append(p(Sorter::selectionSort, a.clone()));
+					if (SLOW) sb.append(p(Sorter::selectionSortK, a.clone()));
+					if (VERBOSE) sb.append(p(Sorter::bubbleSort, a.clone()));
+					if (VERBOSE) sb.append(p(Sorter::bubbleSortK, a.clone()));
+					if (VERBOSE) sb.append(p(Sorter::quickSort, a.clone()));
+					sb.append(p(Sorter::quickSelectK, a.clone()));
+					if (VERBOSE) sb.append(p(Sorter::mergeSort, a.clone()));
+					sb.append(p(Sorter::mergeSortK, a.clone()));
+					if (VERBOSE) sb.append(p(Sorter::mergeSortMulti, a.clone()));
+					sb.append(p(Sorter::mergeSortMultiK, a.clone()));
+					if (VERBOSE) sb.append(p(Sorter::heapSort, a.clone()));
+					sb.append(p(Sorter::heapSortK, a.clone()));
+					sb.append(p(Sorter::medianOfMedians, a.clone()));
+					sb.append("\n");
+					System.out.println(sb.toString());
+					try {
+						Files.write(Paths.get("output.txt"), sb.toString().getBytes(), StandardOpenOption.APPEND);
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+					sb.setLength(0);
+				}
+			}
+			sb.append(outputSummary());
+			System.out.println(sb.toString());
+			try {
+				Files.write(Paths.get("output.txt"), sb.toString().getBytes(), StandardOpenOption.APPEND);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		
+		/**
+		 * Display formatted results from all trials including averages
+		 */
+		private static String outputSummary() {
+			StringBuilder sb = new StringBuilder();
+			List<Type> allKeys = totals.keySet().stream().collect(Collectors.toList());
+			Collections.sort(allKeys);
+			for (Type type : allKeys) {
+				List<Integer> typeKeys = totals.get(type).keySet().stream().collect(Collectors.toList());
+				Collections.sort(typeKeys);
+				for (Integer n : typeKeys) {
+					List<SortStats> list = totals.get(type).get(n);
+					final int size = list.size();
+					sb.append(String.format("\n  ~~~~~~~~  Average of %d trials:  %s,  n = %d  ~~~~~~~~\n\n", NUM_TRIALS, list.get(0).currentType.toString(), n));
+					sb.append(String.format("%6s%-10s%2s", "", "", ""));
+					for (int i = 0; i < size; ++i)
+						sb.append(String.format("%6s%-18s", "", list.get(i).currentSort.toString(), ""));
+					sb.append(String.format("\n\n%16s%6s%-16d%2s", "Array accesses:", "", 
+							list.get(0).arrayAccesses, ""));
+					for (int i = 1; i < size; ++i)
+						sb.append(String.format("%6s%-16d%2s", "", list.get(i).arrayAccesses, ""));
+					sb.append(String.format("\n%16s%6s%-16d%2s", "Swaps:", "", 
+							list.get(0).swaps, ""));
+					for (int i = 1; i < size; ++i)
+						sb.append(String.format("%6s%-16d%2s", "", list.get(i).swaps, ""));
+					sb.append(String.format("\n%16s%6s%-16d%2s", "Comparisons:", "", 
+							list.get(0).comparisons, ""));
+					for (int i = 1; i < size; ++i)
+						sb.append(String.format("%6s%-16d%2s", "", list.get(i).comparisons, ""));
+					sb.append(String.format("\n%16s%6s%-16s%2s", "Elapsed time:", "", 
+							SortStats.formatElapsed(list.get(0).elapsedTime), ""));
+					for (int i = 1; i < size; ++i)
+						sb.append(String.format("%6s%-16s%2s", "", SortStats.formatElapsed(list.get(i).elapsedTime), ""));
+					sb.append("\n\n").toString();
+				}					
+			}
+			return sb.toString();
+		}
+
+		private static <E extends Comparable<? super E>> StringBuilder p(Function<E[], E[]> f, E[] a) {
+			StringBuilder sb = new StringBuilder();
+			E[] res = f.apply(a);
+			return sb.append(String.format("%n%-20s%s%n%-12s%s%n%n", tracker.currentSort.toString(), 
+					tracker.outputTrialResults(), "Result: ", Arrays.toString(res)));
+		}
+
+		private static <E extends Comparable<? super E>> StringBuilder p(BiFunction<E[], Integer, E> f, E[] a) {
+			StringBuilder sb = new StringBuilder();
+			E res = f.apply(a, medianPosition());
+			return sb.append(String.format("%n%-20s%s%n%-12s%s%n%n", tracker.currentSort.toString(), 
+					tracker.outputTrialResults(), "Result: ", res));
+		}
+
+		private static int medianPosition() { 
+			return (Sorter.NEW_ARRAY_LEN + 1) >> 1; 
+		}		
+
+		private static <E extends Comparable<? super E>> E[] newArray(Type type) {
+			switch (type) {
+			case SHORTS:
+				return (E[]) new Short[]{};
+			case INTEGERS:
+				return (E[]) new Integer[]{};
+			case LONGS:
+				return (E[]) new Long[]{};
+			case FLOATS:
+				return (E[]) new Float[]{};
+			case DOUBLES:
+				return (E[]) new Double[]{};
+			case CHARACTERS:
+				return (E[]) new Character[]{};
+			case STRINGS:
+				return (E[]) new String[]{};
+			case BIGINTEGERS:
+				return (E[]) new BigInteger[]{};
+			case LOCALDATETIMES:
+				return (E[]) new LocalDateTime[]{};
+			case UUIDS:
+				return (E[]) new UUID[]{};
+			}
+			return null;
+		}
 
 		/**
 		 * Shuffle the existing elements within argument array
@@ -69,28 +263,31 @@ public interface UsesSorter {
 		 * @param array
 		 * @return The maximum value the can be held in argument array at runtime
 		 */
-		private static <E extends Comparable<? super E>> E maxE(E[] array) {
-			if (array instanceof Integer[])
-				return (E) (Integer) (Integer.MAX_VALUE);
-			else if (array instanceof Short[])
-				return (E) (Short) (Short.MAX_VALUE);
-			else if (array instanceof UUID[])
-				return (E) (UUID) (new UUID(Long.MAX_VALUE, Long.MAX_VALUE));
-			else if (array instanceof LocalDateTime[])
-				return (E) (LocalDateTime) LocalDateTime.MAX;
-			else if (array instanceof Long[])
-				return (E) (Long) (Long.MAX_VALUE);
-			else if (array instanceof Float[])
-				return (E) (Float) (Float.MAX_VALUE);
-			else if (array instanceof Double[])
-				return (E) (Double) (Double.MAX_VALUE);
-			else if (array instanceof Character[])
-				return (E) (Character) (Character.MAX_VALUE);
-			else if (array instanceof String[]) {
-				StringBuilder sb = new StringBuilder();
-				for (int i = 0; i < STRING_LEN; ++i)
-					sb.append(Character.MAX_VALUE);
-				return (E) sb.toString();
+		private static <E extends Comparable<? super E>> E maxE(Type type) {
+			switch (type) {
+				case SHORTS:
+					return (E) (Short) (Short.MAX_VALUE);
+				case INTEGERS:
+					return (E) (Integer) (Integer.MAX_VALUE);
+				case LONGS:
+					return (E) (Long) (Long.MAX_VALUE);
+				case FLOATS:
+					return (E) (Float) (Float.MAX_VALUE);
+				case DOUBLES:
+					return (E) (Double) (Double.MAX_VALUE);
+				case CHARACTERS:
+					return (E) (Character) (Character.MAX_VALUE);
+				case STRINGS:
+					StringBuilder sb = new StringBuilder();
+					for (int i = 0; i < STRING_LEN; ++i)
+						sb.append(Character.MAX_VALUE);
+					return (E) sb.toString();
+				case BIGINTEGERS:
+					return (E) new BigInteger(2000, new Random());
+				case LOCALDATETIMES:
+					return (E) LocalDateTime.MAX;
+				case UUIDS:
+					return (E) new UUID(Long.MAX_VALUE, Long.MAX_VALUE);
 			}
 			return null;
 		}
@@ -203,6 +400,7 @@ public interface UsesSorter {
 		 * @return sorted argument array
 		 */
 		public static <E extends Comparable<? super E>> E[] insertionSort(E[] array) {
+			tracker.currentSort = Sort.INSERTION;
 			return tracker.track(Sorter::insertionSorter, array);
 		}
 
@@ -215,6 +413,7 @@ public interface UsesSorter {
 		 * @return kth smallest element of argument array
 		 */
 		public static <E extends Comparable<? super E>> E insertionSortK(E[] array, int k) {
+			tracker.currentSort = Sort.INSERTION_K;
 			return tracker.track(Sorter::insertionSorter, array)[k - 1];
 		}
 
@@ -226,12 +425,12 @@ public interface UsesSorter {
 		 * @return reference to the sorted array
 		 */
 		private static <E extends Comparable<? super E>> E[] insertionSorter(E[] array) {
-			for (int i = 1, j; i < array.length; i++) {  
+			for (int i = 1; i < array.length; i++) {  
 				E key = array[i];
 				int pos = Math.abs(binarySearch(array, 0, i, key) + 1);
 				System.arraycopy(array, pos, array, pos + 1, i - pos);
 				array[pos] = key;
-				tracker.arrayAccesses += 2;
+				tracker.arrayAccesses += (i - pos + 2) << 2;
 				tracker.swaps += i - pos;
 			}
 			return array;
@@ -273,7 +472,12 @@ public interface UsesSorter {
 		 * @return sorted argument array
 		 */
 		public static <E extends Comparable<? super E>> E[] selectionSort(E[] array) {
-			return tracker.track(Sorter::selectionSortHelper, array);
+			int trials = NUM_TRIALS;
+			NUM_TRIALS = 10;
+			tracker.currentSort = Sort.SELECTION;
+			E[] res = tracker.track(Sorter::selectionSortHelper, array);
+			NUM_TRIALS = trials;
+			return res;
 		}
 
 		/**
@@ -284,7 +488,12 @@ public interface UsesSorter {
 		 * @return kth smallest element of argument array
 		 */
 		public static <E extends Comparable<? super E>> E selectionSortK(E[] array, int k) {
-			return tracker.trackK(Sorter::selectionSortHelperK, array, k);
+			int trials = NUM_TRIALS;
+			NUM_TRIALS = 10;
+			tracker.currentSort = Sort.SELECTION_K;
+			E res = tracker.trackK(Sorter::selectionSortHelperK, array, k);
+			NUM_TRIALS = trials;
+			return res;
 		}
 		
 		/**
@@ -345,6 +554,7 @@ public interface UsesSorter {
 		 * @return sorted argument array
 		 */
 		public static <E extends Comparable<? super E>> E[] bubbleSort(E[] array) {
+			tracker.currentSort = Sort.BUBBLE;
 			return tracker.track(Sorter::bubbleSorter, array);
 		}
 
@@ -356,6 +566,7 @@ public interface UsesSorter {
 		 * @return kth smallest element of argument array
 		 */
 		public static <E extends Comparable<? super E>> E bubbleSortK(E[] array, int k) {
+			tracker.currentSort = Sort.BUBBLE_K;
 			return tracker.trackK(Sorter::bubbleSorterK, array, k);
 		}
 
@@ -414,7 +625,8 @@ public interface UsesSorter {
 		 * @param array
 		 * @return reference to the sorted array
 		 */
-		public static <E extends Comparable<? super E>> E[] quickSort(E[] array) {	
+		public static <E extends Comparable<? super E>> E[] quickSort(E[] array) {
+			tracker.currentSort = Sort.QUICK;
 			return tracker.track(Sorter::quickSorter, array);
 		}
 
@@ -426,6 +638,7 @@ public interface UsesSorter {
 		 * @return reference to the sorted array
 		 */
 		public static <E extends Comparable<? super E>> E quickSelectK(E[] array, int k) {
+			tracker.currentSort = Sort.QUICK_K;
 			return tracker.trackK(Sorter::quickSelectSorterK, array, k);
 		}
 
@@ -518,6 +731,8 @@ public interface UsesSorter {
 		  * @return
 		  */
 		private static <E extends Comparable<? super E>> int partition(E[] array, int l, int r) {
+//			E pivot = findMedianOfMedians(array, l, r);
+//			E pivot = array[l + ((r - l) >> 1)];
 			E pivot = array[r];
 			tracker.arrayAccesses++;
 			int pIndex = l;
@@ -539,6 +754,7 @@ public interface UsesSorter {
 		 * @return reference to the sorted array
 		 */
 		public static <E extends Comparable<? super E>> E[] mergeSort(E[] array) {
+			tracker.currentSort = Sort.MERGE;
 			return tracker.track(Sorter::mergeSorter, array);
 		}
 
@@ -550,6 +766,7 @@ public interface UsesSorter {
 		 * @return reference to the sorted array
 		 */
 		public static <E extends Comparable<? super E>> E mergeSortK(E[] array, int k) {
+			tracker.currentSort = Sort.MERGE_K;
 			return tracker.trackK(Sorter::mergeSortHelperK, array, k);
 		}
 
@@ -561,6 +778,7 @@ public interface UsesSorter {
 		 * @return reference to the sorted array
 		 */
 		public static <E extends Comparable<? super E>> E[] mergeSortMulti(E[] array) {
+			tracker.currentSort = Sort.MT_MERGE;
 			return tracker.track(Sorter::multithreadedMergeSort, array);
 		}
 
@@ -572,6 +790,7 @@ public interface UsesSorter {
 		 * @return kth smallest element of the array
 		 */
 		public static <E extends Comparable<? super E>> E mergeSortMultiK(E[] array, int k) {
+			tracker.currentSort = Sort.MT_MERGE_K;
 			return tracker.trackK(Sorter::multithreadedMergeSortK, array, k);
 		}
 		
@@ -741,7 +960,8 @@ public interface UsesSorter {
 		 * @param array
 		 * @return reference to the sorted array
 		 */
-		public static <E extends Comparable<? super E>> E[] heapSort(E[] array) {	
+		public static <E extends Comparable<? super E>> E[] heapSort(E[] array) {
+			tracker.currentSort = Sort.HEAP;	
 			return tracker.track(Sorter::heapSorter, array);
 		}
 
@@ -753,11 +973,12 @@ public interface UsesSorter {
 		 * @return reference to the sorted array
 		 */
 		public static <E extends Comparable<? super E>> E heapSortK(E[] array, int k) {
+			tracker.currentSort = Sort.HEAP_K;	
 			return tracker.trackK(Sorter::heapSorterK, array, k);
 		}
 		
 		/**
-		 * Algorithm for heap sort
+		 * Algorithm for heap sort.  Modeled after https://www.geeksforgeeks.org/heap-sort/
 		 * 
 		 * @param <E>
 		 * @param array
@@ -775,7 +996,7 @@ public interface UsesSorter {
 		}
 		
 		/**
-		 * Algorithm for heap sort k
+		 * Algorithm for heap sort k.  Modeled after https://www.geeksforgeeks.org/heap-sort/
 		 * 
 		 * @param <E>
 		 * @param array
@@ -793,7 +1014,7 @@ public interface UsesSorter {
 		}
 		
 		/**
-		 * Algorithm used in heap sort
+		 * Algorithm used in heap sort.  Modeled after https://www.geeksforgeeks.org/heap-sort/
 		 * 
 		 * @param <E>
 		 * @param array
@@ -830,6 +1051,7 @@ public interface UsesSorter {
 		 * @return Median value of the array
 		 */
 		public static <E extends Comparable<? super E>> E medianOfMedians(E[] array, int k) {
+			tracker.currentSort = Sort.MEDIAN_OF_MEDIANS;
 			return tracker.trackK(Sorter::medianOfMediansHelper, array, k);
 		}
 		
@@ -842,11 +1064,12 @@ public interface UsesSorter {
 		 * @return
 		 */
 		public static <E extends Comparable<? super E>> E medianOfMediansHelper(E[] array, int k) {
-			return medianOfMediansSorter(array, 0, array.length - 1, k);
+			return medianOfMediansSorterK(array, 0, array.length - 1, k);
 		}
 		
 		/**
-		 * Partition the argument array around the argument value
+		 * Partition the argument array around the argument value.  Used by median of medians.
+		 *
 		 * @param <E>
 		 * @param list
 		 * @param left
@@ -884,7 +1107,7 @@ public interface UsesSorter {
 	    }
 		
 		/**
-		 * Find the median of argument array by pre-sorting
+		 * Find the median of argument array by pre-sorting.
 		 * 
 		 * @param <E>
 		 * @param arr
@@ -896,11 +1119,33 @@ public interface UsesSorter {
 	        Arrays.sort(arr, l, l + len);
 	        tracker.arrayAccesses += (len >> 1) + 1;
 	        tracker.comparisons += len;
-	        return arr[l + (len >> 1)];
+	        return arr[l + ((len - 1) >> 1)];
+	    }
+		
+		/**
+		 * Find the median of argument array by pre-sorting.
+		 * 
+		 * @param <E>
+		 * @param arr
+		 * @param l
+		 * @param len
+		 * @return
+		 */
+	    private static <E extends Comparable<? super E>> E findMedianOfMedians(E arr[], int l, int r) {
+	    	int n = r - l + 1, i;
+	    	E median[] = (E[]) new Comparable[(n + 4) / 5];
+	    	for (i = 0; i < (n - 1) / 5; i++)
+	    		median[i] = findMedian(arr, l + (i * 5), 5);
+	    	if (i * 5 < n) {
+	    		median[i] = findMedian(arr, l + (i * 5), (n - 1) % 5);
+	    		++i;
+	    	}
+	    	return (i == 1) ? median[0] : findMedianOfMedians(median, 0, i - 1);
 	    }
 	    
 	    /**
-	     * Algorithm for finding the kth smallest element using the medians of medians strategy
+	     * Algorithm for finding the kth smallest element using the medians of medians strategy.
+		 * Modeled after https://www.geeksforgeeks.org/kth-smallestlargest-element-unsorted-array-set-3-worst-case-linear-time/
 	     * @param <E>
 	     * @param arr
 	     * @param l
@@ -908,29 +1153,17 @@ public interface UsesSorter {
 	     * @param k
 	     * @return
 	     */
-	    public static <E extends Comparable <? super E>> E medianOfMediansSorter(E arr[], int l, int r, int k) {
+	    public static <E extends Comparable <? super E>> E medianOfMediansSorterK(E arr[], int l, int r, int k) {
 	        if (k > 0 && k <= r - l + 1) {
-	            int n = r - l + 1, i;
-	            E median[] = (E[]) new Comparable[(n + 4) / 5];
-	            for (i = 0; i < n / 5; i++) {
-	                median[i] = findMedian(arr, l + i * 5, 5);
-	            }
-	            tracker.arrayAccesses += n / 5;
-	            if (i * 5 < n) {
-	                median[i] = findMedian(arr, l + i * 5, n % 5);
-	                i++;
-		            tracker.arrayAccesses++;
-	            }
-	            E medOfMed = (i == 1) ? median[0] : medianOfMediansSorter(median, 0, i - 1, i >> 1);
-
+	        	E medOfMed = findMedianOfMedians(arr, l, r);
 	            int pos = partition(arr, l, r, medOfMed);
 	            if (pos - l == k - 1)
 	                return arr[pos];
 	            else if (pos - l > k - 1)
-	                return medianOfMediansSorter(arr, l, pos - 1, k);
-	            return medianOfMediansSorter(arr, pos + 1, r, k - pos + l - 1);
+	                return medianOfMediansSorterK(arr, l, pos - 1, k);
+	            return medianOfMediansSorterK(arr, pos + 1, r, k - pos + l - 1);
 	        }
-	        return maxE(arr);
+	        return maxE(tracker.currentType);
 	    }
 
 		/**
@@ -1024,7 +1257,10 @@ public interface UsesSorter {
 			protected long comparisons;
 			protected long startTime;
 			protected long elapsedTime;
+			protected int n;
 			protected Comparable<?> resultVal;
+			private Sort currentSort;
+			private Type currentType;
 			
 			public SortStats() {}
 			
@@ -1035,6 +1271,9 @@ public interface UsesSorter {
 				startTime = s.startTime;
 				elapsedTime = s.elapsedTime;
 				resultVal = s.resultVal;
+				currentSort = s.currentSort;
+				currentType = s.currentType;
+				n = s.n;
 			}
 			
 			private void startTimer() { startTime = System.nanoTime(); }
@@ -1048,6 +1287,7 @@ public interface UsesSorter {
 				swaps = 0;
 				comparisons = 0;
 				elapsedTime = 0;
+				n = NEW_ARRAY_LEN;
 				resultVal = null;
 				startTimer();
 			}
@@ -1055,56 +1295,55 @@ public interface UsesSorter {
 			/**
 			 * Display, then clear results
 			 */
-			private void end() {
-				displayResults();
-				results.clear();
+			private void end(Type type) {
+//				System.out.println(outputTrialResults());
+				HashMap<Integer, List<SortStats>> map = totals.getOrDefault(type, new HashMap<>());
+				List<SortStats> list = map.getOrDefault(NEW_ARRAY_LEN, new ArrayList<>());
+				list.add(trialResults.get(NUM_TRIALS));
+				map.put(NEW_ARRAY_LEN, list);
+				totals.put(type, map);
+//				trialResults.clear();
 			}
 			
 			/**
 			 * Display formatted results from all trials including averages
 			 */
-			private void displayResults() {
+			public String outputTrialResults() {
 				StringBuilder sb = new StringBuilder();
-				int x = (int)Math.floor(Math.log10(NUM_TRIALS)) + 1;
+				int len = trialResults.size() - 1;
+				int x = (int)Math.floor(Math.log10(len)) + 1;
 				sb.append(String.format("%6s%-16s%2s", "", "Average", ""));
-				for (int i = 1; i <= NUM_TRIALS; ++i)
-					sb.append(String.format("%6sTrial %0" + x + "d%10s", "", i, ""));
-				System.out.println(sb.append("\n").toString());
-				sb.setLength(0);
-				sb.append(String.format("%16s", "Array accesses:"));
-				sb.append(String.format("%6s%-16d%2s", "", 
-						Math.round(results.stream().mapToLong(s -> s.arrayAccesses).average().getAsDouble()), ""));
-				for (int i = 0; i < NUM_TRIALS; ++i)
-					sb.append(String.format("%6s%-16d%2s", "", results.get(i).arrayAccesses, ""));
-				System.out.println(sb.toString());
-				sb.setLength(0);
-				sb.append(String.format("%16s", "Swaps:"));
-				sb.append(String.format("%6s%-16d%2s", "", 
-						Math.round(results.stream().mapToLong(s -> s.swaps).average().getAsDouble()), ""));
-				for (int i = 0; i < NUM_TRIALS; ++i)
-					sb.append(String.format("%6s%-16d%2s", "", results.get(i).swaps, ""));
-				System.out.println(sb.toString());
-				sb.setLength(0);
-				sb.append(String.format("%16s", "Comparisons:"));
-				sb.append(String.format("%6s%-16d%2s", "", 
-						Math.round(results.stream().mapToLong(s -> s.comparisons).average().getAsDouble()), ""));
-				for (int i = 0; i < NUM_TRIALS; ++i)
-					sb.append(String.format("%6s%-16d%2s", "", results.get(i).comparisons, ""));
-				System.out.println(sb.toString());
-				sb.setLength(0);
-				sb.append(String.format("%16s", "Elapsed time:"));
-				long elapsed = Math.round(results.stream().mapToLong(s -> s.elapsedTime).average().getAsDouble());
+				for (int i = 1; i <= len; ++i)
+					sb.append(String.format("%6sTrial %0" + x + "d%" + (10 - x + 2) + "s", "", i, ""));
+				sb.append(String.format("\n\n%16s%6s%-16d%2s", "Array accesses:", "", 
+						trialResults.get(len).arrayAccesses, ""));
+				for (int i = 0; i < len; ++i)
+					sb.append(String.format("%6s%-16d%2s", "", trialResults.get(i).arrayAccesses, ""));
+				sb.append(String.format("\n%16s%6s%-16d%2s", "Swaps:", "", 
+						trialResults.get(len).swaps, ""));
+				for (int i = 0; i < len; ++i)
+					sb.append(String.format("%6s%-16d%2s", "", trialResults.get(i).swaps, ""));
+				sb.append(String.format("\n%16s%6s%-16d%2s", "Comparisons:", "", 
+						trialResults.get(len).comparisons, ""));
+				for (int i = 0; i < len; ++i)
+					sb.append(String.format("%6s%-16d%2s", "", trialResults.get(i).comparisons, ""));
+				sb.append(String.format("\n%16s%6s%-16s%2s", "Elapsed time:", "", 
+						formatElapsed(trialResults.get(len).elapsedTime), ""));
+				for (int i = 0; i < len; ++i)
+					sb.append(String.format("%6s%-16s%2s", "", formatElapsed(trialResults.get(i).elapsedTime), ""));
+				return sb.append("\n").toString();
+			}
+			
+			/**
+			 * Format the elapsed time into a readable string
+			 * 
+			 * @param elapsed
+			 * @return
+			 */
+			public static String formatElapsed(long elapsed) {
 				long seconds = elapsed / 1000000000;
 				long nanos = elapsed % 1000000000;
-				sb.append(String.format("%6s%-16s%2s", "", 
-						String.format("%d.%09ds", seconds, nanos), ""));
-				for (int i = 0; i < NUM_TRIALS; ++i) {
-					elapsed = results.get(i).elapsedTime;
-					seconds = elapsed / 1000000000;
-					nanos = elapsed % 1000000000;
-					sb.append(String.format("%6s%-16s%2s", "", String.format("%d.%09ds", seconds, nanos), ""));
-				}
-				System.out.println(sb.append("\n").toString());
+				return String.format("%d.%09ds", seconds, nanos);
 			}
 
 			/**
@@ -1116,19 +1355,34 @@ public interface UsesSorter {
 			 * @return sorted array
 			 */
 			private <E extends Comparable<? super E>> E[] track(Function<E[], E[]> f, E[] array) {
+				trialResults.clear();
 				E[] res = null;
 				for (int i = 0; i < NUM_TRIALS; ++i) {
 					E[] a = array.clone();
 					prep();
 					res = f.apply(a);
 					endTimer();
-					results.add(new SortStats(tracker));
+					trialResults.add(new SortStats(tracker));
 					shuffle(array);
 				}
-				end();
+				trialResults.add(averageOfTrials());
+				end(currentType);
 				return res;
 			}
 			
+			/**
+			 * Return a SortStats object containing the averages of the results
+			 * 
+			 * @return
+			 */
+			private SortStats averageOfTrials() {
+				tracker.arrayAccesses = Math.round(trialResults.stream().mapToLong(s -> s.arrayAccesses).average().getAsDouble());
+				tracker.swaps = Math.round(trialResults.stream().mapToLong(s -> s.swaps).average().getAsDouble());
+				tracker.comparisons = Math.round(trialResults.stream().mapToLong(s -> s.comparisons).average().getAsDouble());
+				tracker.elapsedTime = Math.round(trialResults.stream().mapToLong(s -> s.elapsedTime).average().getAsDouble());
+				return new SortStats(tracker);
+			}
+
 			/**
 			 * Track argument k-sorting function across a number of trials
 			 * 
@@ -1139,17 +1393,23 @@ public interface UsesSorter {
 			 * @return kth smallest element
 			 */
 			private <E extends Comparable<? super E>> E trackK(BiFunction<E[], Integer, E> f, E[] array, int k) {
+				trialResults.clear();
 				E val = null;
 				for (int i = 0; i < NUM_TRIALS; ++i) {
 					E[] a = array.clone();
 					prep();
 					val = (E) (resultVal = f.apply(a, k));
 					endTimer();
-					results.add(new SortStats(tracker));
+					trialResults.add(new SortStats(tracker));
 					shuffle(array);
 				}
-				end();
+				trialResults.add(averageOfTrials());
+				end(currentType);
 				return val;
+			}
+			
+			public String toString() {
+				return String.format("%s:  %s", currentSort.toString(), currentType.toString());
 			}
 		}
 	}
